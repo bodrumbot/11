@@ -23,6 +23,23 @@ let currentFoodItem = null;
 let currentOrderId = null;
 
 // ==========================================
+// PAYME SOZLAMALARI
+// ==========================================
+
+// Payme adminlari bergan ma'lumotlar
+const PAYME_MERCHANT_ID = '698d8268f7c89c2bb7cfc08e';
+
+// Test rejimmi yoki ishchi?
+// true = test.payme.uz (test to'lov)
+// false = checkout.payme.uz (haqiqiy to'lov)
+const IS_TEST_MODE = true;
+
+// Payme checkout URL
+const PAYME_BASE_URL = IS_TEST_MODE 
+  ? 'https://checkout.test.payme.uz' 
+  : 'https://checkout.payme.uz';
+
+// ==========================================
 // DOM ELEMENTS
 // ==========================================
 
@@ -362,6 +379,11 @@ document.getElementById('orderBtn').addEventListener('click', async () => {
   document.getElementById('paymentTotal').textContent = total.toLocaleString() + ' so\'m';
   document.getElementById('paymentPhone').value = profile.phone || '';
   
+  // Test rejim ekanligini ko'rsatish
+  if (IS_TEST_MODE) {
+    console.log('⚠️ TEST REJIM: checkout.test.payme.uz');
+  }
+  
   paymentModal.classList.add('show');
   btn.disabled = false;
   btn.textContent = 'Buyurtma berish';
@@ -391,29 +413,12 @@ async function processPaymePayment(phone) {
   
   try {
     // ==========================================
-    // PAYME WEB KASSA SOZLAMALARI
-    // ==========================================
-    
-    // O'ZINGIZNING PAYME MERCHANT ID INGIZNI QO'YING
-    // my.payme.uz dan olingan merchant ID
-    const PAYME_MERCHANT_ID = 'your_merchant_id_here';
-    
-    // Amount tiyinda (so'm * 100)
-    const amount = Math.round(total * 100);
-    
-    // Callback URL - to'lov muvaffaqiyatli bo'lganda qaytish uchun
-    const callbackUrl = encodeURIComponent(window.location.origin + '/payment-success.html');
-    
-    // Order ID - to'lovni tracking qilish uchun
-    const orderId = encodeURIComponent(currentOrderId);
-    
-    // ==========================================
     // 1. AVVAL FIREBASE GA SAQLASH
     // ==========================================
     
     const pendingOrderData = {
       name: profile.name,
-      phone: phone, // Modal dan olingan telefon
+      phone: phone,
       items: cart.map(item => ({
         name: item.name,
         price: item.price,
@@ -452,21 +457,37 @@ async function processPaymePayment(phone) {
     // 2. PAYME CHECKOUT URL YARATISH
     // ==========================================
     
-    // Payme web kassa URL formati (to'g'ri format):
-    // https://checkout.payme.uz/{merchant_id}?amount={amount}&account[order_id]={order_id}&callback={callback_url}
+    // Amount tiyinda (so'm * 100)
+    // Masalan: 15000 so'm = 1500000 tiyin
+    const amount = Math.round(total * 100);
     
-    const paymeCheckoutUrl = `https://checkout.payme.uz/${PAYME_MERCHANT_ID}?amount=${amount}&account[order_id]=${orderId}&callback=${callbackUrl}`;
+    // Callback URL
+    const callbackUrl = window.location.origin + '/payment-success.html';
+    
+    // URL parametrlari
+    const params = new URLSearchParams({
+      amount: amount.toString(),
+      'account[order_id]': currentOrderId,
+      callback: callbackUrl
+    });
+    
+    // To'liq Payme URL
+    const paymeCheckoutUrl = `${PAYME_BASE_URL}/${PAYME_MERCHANT_ID}?${params.toString()}`;
 
+    console.log('========================================');
     console.log('Payme URL:', paymeCheckoutUrl);
-    console.log('Amount (tiyin):', amount);
+    console.log('Merchant ID:', PAYME_MERCHANT_ID);
+    console.log('Amount:', amount, 'tiyin (', total, 'so\'m)');
     console.log('Order ID:', currentOrderId);
+    console.log('Test mode:', IS_TEST_MODE);
+    console.log('========================================');
 
     // ==========================================
     // 3. PAYME CHECKOUT NI OCHISH
     // ==========================================
     
     if (tg && tg.openLink) {
-      // Telegram WebApp orqali ochish (external browser)
+      // Telegram WebApp orqali ochish
       tg.openLink(paymeCheckoutUrl, { try_instant_view: false });
     } else {
       // Oddiy browser da yangi tab ochish

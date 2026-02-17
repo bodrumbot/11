@@ -21,23 +21,14 @@ let searchQuery = '';
 let currentProfile = null;
 let currentFoodItem = null;
 let currentOrderId = null;
+let checkInterval = null;
 
 // ==========================================
-// PAYME SOZLAMALARI
+// PAYME SOZLAMALARI - CALLBACK SIZ
 // ==========================================
 
-// Payme adminlari bergan ma'lumotlar
 const PAYME_MERCHANT_ID = '698d8268f7c89c2bb7cfc08e';
-
-// Test rejimmi yoki ishchi?
-// true = test.payme.uz (test to'lov)
-// false = checkout.payme.uz (haqiqiy to'lov)
-const IS_TEST_MODE = true;
-
-// Payme checkout URL
-const PAYME_BASE_URL = IS_TEST_MODE 
-  ? 'https://checkout.test.payme.uz' 
-  : 'https://checkout.payme.uz';
+const PAYME_BASE_URL = 'https://checkout.payme.uz';
 
 // ==========================================
 // DOM ELEMENTS
@@ -349,7 +340,7 @@ function requestLocation() {
 }
 
 // ==========================================
-// PAYMENT MODAL - PAYME WEB KASSA
+// PAYMENT MODAL - CALLBACK SIZ
 // ==========================================
 
 document.getElementById('orderBtn').addEventListener('click', async () => {
@@ -367,7 +358,7 @@ document.getElementById('orderBtn').addEventListener('click', async () => {
   
   const btn = document.getElementById('orderBtn');
   btn.disabled = true;
-  btn.textContent = 'Joylashuv aniqlanmoqda...';
+  btn.textContent = 'Yuklanmoqda...';
   
   try {
     currentLocation = await requestLocation();
@@ -378,11 +369,6 @@ document.getElementById('orderBtn').addEventListener('click', async () => {
   const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
   document.getElementById('paymentTotal').textContent = total.toLocaleString() + ' so\'m';
   document.getElementById('paymentPhone').value = profile.phone || '';
-  
-  // Test rejim ekanligini ko'rsatish
-  if (IS_TEST_MODE) {
-    console.log('⚠️ TEST REJIM: checkout.test.payme.uz');
-  }
   
   paymentModal.classList.add('show');
   btn.disabled = false;
@@ -400,22 +386,18 @@ document.getElementById('confirmPaymentBtn').addEventListener('click', async () 
   await processPaymePayment(phone);
 });
 
-// Payme Web Kassa to'lovi - TO'G'RILANGAN
+// Payme to'lovi - CALLBACK SIZ
 async function processPaymePayment(phone) {
   const profile = await getProfileDB();
   const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
   currentOrderId = 'ORD_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   
-  // Loading ko'rsatish
   document.getElementById('btnText').textContent = 'Yuklanmoqda...';
   document.getElementById('btnLoader').style.display = 'inline-block';
   document.getElementById('confirmPaymentBtn').disabled = true;
   
   try {
-    // ==========================================
-    // 1. AVVAL FIREBASE GA SAQLASH
-    // ==========================================
-    
+    // Firebase ga saqlash
     const pendingOrderData = {
       name: profile.name,
       phone: phone,
@@ -448,54 +430,43 @@ async function processPaymePayment(phone) {
       orderId: currentOrderId
     });
     
-    // LocalStorage ga saqlash
+    // LocalStorage
     localStorage.setItem('lastOrderId', currentOrderId);
     localStorage.setItem('lastOrderAmount', total);
-    localStorage.setItem('lastOrderMethod', 'Payme');
+    localStorage.setItem('lastOrderTime', Date.now().toString());
 
-    // ==========================================
-    // 2. PAYME CHECKOUT URL YARATISH
-    // ==========================================
-    
-    // Amount tiyinda (so'm * 100)
-    // Masalan: 15000 so'm = 1500000 tiyin
+    // CALLBACK SIZ - faqat amount va order_id
     const amount = Math.round(total * 100);
-    
-    // Callback URL
-    const callbackUrl = window.location.origin + '/payment-success.html';
-    
-    // URL parametrlari
     const params = new URLSearchParams({
       amount: amount.toString(),
-      'account[order_id]': currentOrderId,
-      callback: callbackUrl
+      'account[order_id]': currentOrderId
     });
     
-    // To'liq Payme URL
     const paymeCheckoutUrl = `${PAYME_BASE_URL}/${PAYME_MERCHANT_ID}?${params.toString()}`;
 
     console.log('========================================');
-    console.log('Payme URL:', paymeCheckoutUrl);
-    console.log('Merchant ID:', PAYME_MERCHANT_ID);
+    console.log('Payme URL (callback siz):', paymeCheckoutUrl);
     console.log('Amount:', amount, 'tiyin (', total, 'so\'m)');
     console.log('Order ID:', currentOrderId);
-    console.log('Test mode:', IS_TEST_MODE);
     console.log('========================================');
 
-    // ==========================================
-    // 3. PAYME CHECKOUT NI OCHISH
-    // ==========================================
-    
+    // Payme ni ochish
     if (tg && tg.openLink) {
-      // Telegram WebApp orqali ochish
       tg.openLink(paymeCheckoutUrl, { try_instant_view: false });
+      
+      // Telegram da xabar
+      setTimeout(() => {
+        tg.showAlert('To\'lovni amalga oshiring.\n\nTo\'lov qilgach, "PROFIL" bo\'limiga o\'ting va buyurtma statusini tekshiring!');
+      }, 500);
     } else {
-      // Oddiy browser da yangi tab ochish
       window.open(paymeCheckoutUrl, '_blank');
+      alert('To\'lovni amalga oshiring. To\'lov qilgach, profilga o\'ting va statusni tekshiring!');
     }
     
-    // Modal ni yopish
     closePaymentModal();
+    
+    // Auto-check boshlash
+    startPaymentCheck(currentOrderId);
     
   } catch (error) {
     console.error('Payment error:', error);
@@ -503,6 +474,99 @@ async function processPaymePayment(phone) {
     document.getElementById('btnText').textContent = 'Payme orqali to\'lash';
     document.getElementById('btnLoader').style.display = 'none';
     document.getElementById('confirmPaymentBtn').disabled = false;
+  }
+}
+
+// To'lovni avtomatik tekshirish
+function startPaymentCheck(orderId) {
+  console.log('To\'lov tekshiruvi boshlandi:', orderId);
+  
+  // Eski interval ni tozalash
+  if (checkInterval) {
+    clearInterval(checkInterval);
+  }
+  
+  let checkCount = 0;
+  const maxChecks = 72; // 6 daqiqa (har 5 sekundda)
+  
+  checkInterval = setInterval(async () => {
+    checkCount++;
+    console.log(`Tekshirish #${checkCount}`);
+    
+    try {
+      const ordersRef = ref(db, 'orders');
+      onValue(ordersRef, (snapshot) => {
+        const orders = snapshot.val();
+        if (!orders) return;
+        
+        const orderEntry = Object.entries(orders).find(([key, val]) => 
+          val.orderId === orderId
+        );
+        
+        if (orderEntry) {
+          const [key, data] = orderEntry;
+          console.log('Order status:', data.status, 'Payment:', data.paymentStatus);
+          
+          if (data.paymentStatus === 'paid' || data.status === 'accepted') {
+            clearInterval(checkInterval);
+            checkInterval = null;
+            console.log('✅ To\'lov topildi!');
+            
+            // Muvaffaqiyat!
+            showNotification('✅ To\'lov muvaffaqiyatli! Buyurtmangiz qabul qilindi.', 'success');
+            
+            // Savatni tozalash
+            cart = [];
+            saveCartLS();
+            renderCart();
+            
+            // LocalStorage ni tozalash
+            localStorage.removeItem('lastOrderId');
+            localStorage.removeItem('lastOrderTime');
+            
+            // Profilga o'tish
+            setTimeout(() => {
+              switchTab('profile');
+              
+              if (tg?.showAlert) {
+                tg.showAlert('🎉 Buyurtmangiz qabul qilindi!\n\nTez orada yetkazib beramiz.');
+              }
+            }, 1000);
+            
+          } else if (data.status === 'rejected' || data.paymentStatus === 'cancelled') {
+            clearInterval(checkInterval);
+            checkInterval = null;
+            console.log('❌ To\'lov bekor qilingan');
+            
+            showNotification('❌ To\'lov bekor qilindi', 'error');
+            localStorage.removeItem('lastOrderId');
+            localStorage.removeItem('lastOrderTime');
+          }
+        }
+      }, { onlyOnce: true });
+      
+    } catch (e) {
+      console.error('Tekshirish xatosi:', e);
+    }
+    
+    // Vaqt tugadi
+    if (checkCount >= maxChecks) {
+      clearInterval(checkInterval);
+      checkInterval = null;
+      console.log('Tekshirish vaqti tugadi');
+      
+      showNotification('⏳ To\'lov statusini "Profil" dan tekshiring', 'info');
+    }
+    
+  }, 5000); // Har 5 sekundda
+}
+
+// To'lov tekshiruvini to'xtatish
+function stopPaymentCheck() {
+  if (checkInterval) {
+    clearInterval(checkInterval);
+    checkInterval = null;
+    console.log('Tekshirish to\'xtatildi');
   }
 }
 
@@ -611,6 +675,20 @@ function renderOrdersList(orders) {
     const date = new Date(order.createdAt || order.date);
     const itemsText = order.items ? order.items.map(i => `${i.name} x${i.qty}`).join(', ') : order.text;
     
+    // Status rangi
+    let statusClass = 'pending';
+    let statusText = '⏳ Kutilmoqda';
+    
+    if (order.paymentStatus === 'paid' || order.status === 'accepted') {
+      statusClass = 'accepted';
+      statusText = '✅ Qabul qilingan';
+    } else if (order.status === 'rejected') {
+      statusClass = 'rejected';
+      statusText = '❌ Bekor qilingan';
+    } else if (order.status === 'pending_payment') {
+      statusText = '⏳ To\'lov kutilmoqda';
+    }
+    
     return `
       <div class="order-history-card">
         <div class="order-history-header">
@@ -620,10 +698,7 @@ function renderOrdersList(orders) {
         <div class="order-history-items">${itemsText}</div>
         <div class="order-history-footer">
           <span class="order-history-total">${(order.total || 0).toLocaleString()} so'm</span>
-          <span class="order-history-status ${order.status || 'accepted'}">
-            ${order.status === 'pending_payment' ? '⏳ To\'lov kutilmoqda' : 
-              order.status === 'pending' ? '⏳ Kutilmoqda' : '✅ Qabul qilingan'}
-          </span>
+          <span class="order-history-status ${statusClass}">${statusText}</span>
         </div>
       </div>
     `;
@@ -751,6 +826,7 @@ logoutBtn.addEventListener('click', async () => {
       saveCartLS();
       renderCart();
       renderProfile();
+      stopPaymentCheck(); // Tekshiruvni to'xtatish
       showNotification('Akkauntdan chiqildi', 'success');
     } catch (error) {
       debugLog('Logout xato', error.message);
@@ -813,6 +889,25 @@ document.addEventListener('DOMContentLoaded', () => {
     renderMenu();
     renderCart();
     renderProfile();
+    
+    // Agar oldingi to'lov kutilmoqda bo'lsa, tekshirishni davom ettirish
+    const lastOrderId = localStorage.getItem('lastOrderId');
+    const lastOrderTime = localStorage.getItem('lastOrderTime');
+    
+    if (lastOrderId && lastOrderTime) {
+      const timePassed = Date.now() - parseInt(lastOrderTime);
+      const tenMinutes = 10 * 60 * 1000;
+      
+      // 10 daqiqadan oshmasa tekshirishni davom ettirish
+      if (timePassed < tenMinutes) {
+        console.log('Eski to\'lov tekshiruvi davom ettirilmoqda:', lastOrderId);
+        startPaymentCheck(lastOrderId);
+      } else {
+        // Vaqt o'tib ketgan, tozalash
+        localStorage.removeItem('lastOrderId');
+        localStorage.removeItem('lastOrderTime');
+      }
+    }
     
     debugLog('Init muvaffaqiyatli');
   } catch (error) {

@@ -390,24 +390,39 @@ async function processPaymePayment() {
   document.getElementById('confirmPaymentBtn').disabled = true;
   
   try {
-    // Payme merchant ID - O'ZINGIZNIKI BILAN ALMASHTIRING
+    // Payme merchant ID
     const PAYME_MERCHANT_ID = '698d8268f7c89c2bb7cfc08e';
     
-    // account parametri (majburiy)
+    // Amount tiyinda (so'm * 100)
+    const amount = Math.round(total * 100);
+    
+    // Account parametri - order_id majburiy
     const account = {
       order_id: currentOrderId
     };
-
-    // Payme params ni base64 qilish
-    const params = btoa(JSON.stringify({
-      merchant: PAYME_MERCHANT_ID,
-      amount: total * 100, // tiyinda
-      account: account,
-      callback: window.location.origin + '/payment-success.html'
-    }));
-
-    // To'g'ri checkout URL - BO'SH JOYSIZ
+    
+    // Callback URL
+    const callbackUrl = window.location.origin + '/payment-success.html';
+    
+    // ==========================================
+    // PAYME PARAMS FORMATI (to'g'ri)
+    // ==========================================
+    
+    // Payme quyidagi formatni talab qiladi:
+    // base64(merchant_id;amount;account_base64;callback_url)
+    
+    const accountBase64 = btoa(JSON.stringify(account));
+    
+    // Asosiy string
+    const rawParams = `${PAYME_MERCHANT_ID};${amount};${accountBase64};${callbackUrl}`;
+    
+    // B64 encode
+    const params = btoa(rawParams);
+    
+    // To'g'ri checkout URL
     const paymeCheckoutUrl = `https://checkout.paycom.uz/${PAYME_MERCHANT_ID}?params=${params}`;
+
+    console.log('Payme URL:', paymeCheckoutUrl); // Debug uchun
 
     // ==========================================
     // 1. AVVAL FIREBASE GA SAQLASH
@@ -468,6 +483,7 @@ async function processPaymePayment() {
     document.getElementById('confirmPaymentBtn').disabled = false;
   }
 }
+
 
 function closePaymentModal() {
   paymentModal.classList.remove('show');

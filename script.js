@@ -307,7 +307,7 @@ window.switchTab = function(tabName) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   
-  document.querySelector(`[data-tab="${tabName}"]`)?.classList.add('active');
+  document.querySelector(`[data-tab="${tabName}]`)?.classList.add('active');
   document.getElementById(tabName)?.classList.add('active');
   
   if (tabName === 'profile') renderProfile();
@@ -385,7 +385,7 @@ async function processPaymePayment() {
   currentOrderId = 'ORD_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   
   // Loading ko'rsatish
-  document.getElementById('btnText').textContent = 'To\'lov sahifasiga yo\'naltirilmoqda...';
+  document.getElementById('btnText').textContent = 'Buyurtma saqlanmoqda...';
   document.getElementById('btnLoader').style.display = 'inline-block';
   document.getElementById('confirmPaymentBtn').disabled = true;
   
@@ -393,19 +393,26 @@ async function processPaymePayment() {
     // Payme merchant ID - O'ZINGIZNIKI BILAN ALMASHTIRING
     const PAYME_MERCHANT_ID = '698d8268f7c89c2bb7cfc08e';
     
-    // Payme parametrlari
-    const paymeParams = {
-      merchant: PAYME_MERCHANT_ID,
-      amount: total * 100, // Payme tiyinda (so'm * 100)
-      order_id: currentOrderId,
-      detail: 'BODRUM - ' + cart.map(i => i.name).join(', ').substring(0, 100),
-      description: 'BODRUM Restaurant',
-      callback_url: window.location.origin + '/payment-success.html?order_id=' + currentOrderId,
-      callback_timeout: 0,
-      lang: 'uz'
+    // account parametri (majburiy)
+    const account = {
+      order_id: currentOrderId
     };
+
+    // Payme params ni base64 qilish
+    const params = btoa(JSON.stringify({
+      merchant: PAYME_MERCHANT_ID,
+      amount: total * 100, // tiyinda
+      account: account,
+      callback: window.location.origin + '/payment-success.html'
+    }));
+
+    // To'g'ri checkout URL - BO'SH JOYSIZ
+    const paymeCheckoutUrl = `https://checkout.paycom.uz/${PAYME_MERCHANT_ID}?params=${params}`;
+
+    // ==========================================
+    // 1. AVVAL FIREBASE GA SAQLASH
+    // ==========================================
     
-    // Buyurtmani Firebase ga saqlash
     const pendingOrderData = {
       name: profile.name,
       phone: profile.phone,
@@ -442,15 +449,16 @@ async function processPaymePayment() {
     localStorage.setItem('lastOrderId', currentOrderId);
     localStorage.setItem('lastOrderAmount', total);
     localStorage.setItem('lastOrderMethod', 'Payme');
+
+    // ==========================================
+    // 2. KEYIN FAQAT BIR MARTA REDIRECT
+    // ==========================================
     
-    // Payme checkout URL
-    const paymeCheckoutUrl = `https://checkout.paycom.uz/${PAYME_MERCHANT_ID}?` + 
-      Object.entries(paymeParams)
-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-        .join('&');
-    
-    // To'lov sahifasiga yo'naltirish
-    window.location.href = paymeCheckoutUrl;
+    if (tg) {
+      tg.openLink(paymeCheckoutUrl);
+    } else {
+      window.location.href = paymeCheckoutUrl;
+    }
     
   } catch (error) {
     console.error('Payment error:', error);

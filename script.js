@@ -1,4 +1,4 @@
-import { db, ref, push, set } from './firebase-config.js';
+import { db, ref, push, set, onValue } from './firebase-config.js';
 import { getMenuFromLocal, categories } from './menu.js';
 import { saveProfileDB, getProfileDB, getOrdersDB, deleteProfileDB, addOrderDB } from './db.js';
 
@@ -307,7 +307,7 @@ window.switchTab = function(tabName) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   
-  document.querySelector(`[data-tab="${tabName}]`)?.classList.add('active');
+  document.querySelector(`[data-tab="${tabName}"]`)?.classList.add('active');
   document.getElementById(tabName)?.classList.add('active');
   
   if (tabName === 'profile') renderProfile();
@@ -332,7 +332,7 @@ function requestLocation() {
 }
 
 // ==========================================
-// PAYMENT MODAL - FAQAT PAYME
+// PAYMENT MODAL - PAYME WEB KASSA
 // ==========================================
 
 document.getElementById('orderBtn').addEventListener('click', async () => {
@@ -375,62 +375,45 @@ document.getElementById('confirmPaymentBtn').addEventListener('click', async () 
     return;
   }
   
-  await processPaymePayment();
+  await processPaymePayment(phone);
 });
 
-// Faqat Payme to'lovi
-async function processPaymePayment() {
+// Payme Web Kassa to'lovi - TO'G'RILANGAN
+async function processPaymePayment(phone) {
   const profile = await getProfileDB();
   const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
   currentOrderId = 'ORD_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   
   // Loading ko'rsatish
-  document.getElementById('btnText').textContent = 'Buyurtma saqlanmoqda...';
+  document.getElementById('btnText').textContent = 'Yuklanmoqda...';
   document.getElementById('btnLoader').style.display = 'inline-block';
   document.getElementById('confirmPaymentBtn').disabled = true;
   
   try {
-    // Payme merchant ID
-    const PAYME_MERCHANT_ID = '698d8268f7c89c2bb7cfc08e';
+    // ==========================================
+    // PAYME WEB KASSA SOZLAMALARI
+    // ==========================================
+    
+    // O'ZINGIZNING PAYME MERCHANT ID INGIZNI QO'YING
+    // my.payme.uz dan olingan merchant ID
+    const PAYME_MERCHANT_ID = 'your_merchant_id_here';
     
     // Amount tiyinda (so'm * 100)
     const amount = Math.round(total * 100);
     
-    // Account parametri - order_id majburiy
-    const account = {
-      order_id: currentOrderId
-    };
+    // Callback URL - to'lov muvaffaqiyatli bo'lganda qaytish uchun
+    const callbackUrl = encodeURIComponent(window.location.origin + '/payment-success.html');
     
-    // Callback URL
-    const callbackUrl = window.location.origin + '/payment-success.html';
+    // Order ID - to'lovni tracking qilish uchun
+    const orderId = encodeURIComponent(currentOrderId);
     
-    // ==========================================
-    // PAYME PARAMS FORMATI (to'g'ri)
-    // ==========================================
-    
-    // Payme quyidagi formatni talab qiladi:
-    // base64(merchant_id;amount;account_base64;callback_url)
-    
-    const accountBase64 = btoa(JSON.stringify(account));
-    
-    // Asosiy string
-    const rawParams = `${PAYME_MERCHANT_ID};${amount};${accountBase64};${callbackUrl}`;
-    
-    // B64 encode
-    const params = btoa(rawParams);
-    
-    // To'g'ri checkout URL
-    const paymeCheckoutUrl = `https://checkout.paycom.uz/${PAYME_MERCHANT_ID}?params=${params}`;
-
-    console.log('Payme URL:', paymeCheckoutUrl); // Debug uchun
-
     // ==========================================
     // 1. AVVAL FIREBASE GA SAQLASH
     // ==========================================
     
     const pendingOrderData = {
       name: profile.name,
-      phone: profile.phone,
+      phone: phone, // Modal dan olingan telefon
       items: cart.map(item => ({
         name: item.name,
         price: item.price,
@@ -466,14 +449,32 @@ async function processPaymePayment() {
     localStorage.setItem('lastOrderMethod', 'Payme');
 
     // ==========================================
-    // 2. KEYIN FAQAT BIR MARTA REDIRECT
+    // 2. PAYME CHECKOUT URL YARATISH
     // ==========================================
     
-    if (tg) {
-      tg.openLink(paymeCheckoutUrl);
+    // Payme web kassa URL formati (to'g'ri format):
+    // https://checkout.payme.uz/{merchant_id}?amount={amount}&account[order_id]={order_id}&callback={callback_url}
+    
+    const paymeCheckoutUrl = `https://checkout.payme.uz/${PAYME_MERCHANT_ID}?amount=${amount}&account[order_id]=${orderId}&callback=${callbackUrl}`;
+
+    console.log('Payme URL:', paymeCheckoutUrl);
+    console.log('Amount (tiyin):', amount);
+    console.log('Order ID:', currentOrderId);
+
+    // ==========================================
+    // 3. PAYME CHECKOUT NI OCHISH
+    // ==========================================
+    
+    if (tg && tg.openLink) {
+      // Telegram WebApp orqali ochish (external browser)
+      tg.openLink(paymeCheckoutUrl, { try_instant_view: false });
     } else {
-      window.location.href = paymeCheckoutUrl;
+      // Oddiy browser da yangi tab ochish
+      window.open(paymeCheckoutUrl, '_blank');
     }
+    
+    // Modal ni yopish
+    closePaymentModal();
     
   } catch (error) {
     console.error('Payment error:', error);
@@ -484,12 +485,9 @@ async function processPaymePayment() {
   }
 }
 
-
 function closePaymentModal() {
   paymentModal.classList.remove('show');
   setTimeout(() => {
-    document.getElementById('paymentForm').style.display = 'block';
-    document.getElementById('paymentSuccess').style.display = 'none';
     document.getElementById('btnText').textContent = 'Payme orqali to\'lash';
     document.getElementById('btnLoader').style.display = 'none';
     document.getElementById('confirmPaymentBtn').disabled = false;

@@ -6,122 +6,30 @@
   <title>To'lov muvaffaqiyatli - BODRUM</title>
   <link rel="stylesheet" href="style.css">
   <style>
-    :root {
-      --gold-primary: #FFD700;
-      --gold-light: #FFE55C;
-      --gold-dark: #D4AF37;
-      --bg: #0a0a0a;
-      --surface: #141414;
-      --surface-light: #1f1f1f;
-      --text: #FFFFFF;
-      --text-secondary: #A0A0A0;
-      --success: #00D084;
+    /* Avvalgi styles... */
+    
+    .check-status {
+      margin-top: 20px;
+      padding: 16px;
+      background: rgba(0, 208, 132, 0.1);
+      border-radius: 12px;
+      border: 1px solid rgba(0, 208, 132, 0.2);
     }
     
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    }
-    
-    .success-container {
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 40px 20px;
-      text-align: center;
-      background: var(--bg);
-    }
-    
-    .payme-logo {
-      width: 100px;
-      height: 100px;
-      background: linear-gradient(135deg, #00C853 0%, #00B248 100%);
-      border-radius: 24px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 48px;
-      margin-bottom: 30px;
-      color: white;
-      font-weight: 800;
-      box-shadow: 0 10px 40px rgba(0, 200, 83, 0.3);
-      animation: scaleIn 0.5s ease;
-    }
-    
-    @keyframes scaleIn {
-      from { transform: scale(0); opacity: 0; }
-      to { transform: scale(1); opacity: 1; }
-    }
-    
-    .success-title {
-      font-size: 28px;
-      font-weight: 800;
-      color: var(--text);
-      margin-bottom: 16px;
-    }
-    
-    .success-text {
-      font-size: 16px;
+    .check-status p {
       color: var(--text-secondary);
-      margin-bottom: 40px;
-      line-height: 1.6;
-      max-width: 300px;
+      font-size: 14px;
+      margin-bottom: 12px;
     }
     
-    .success-btn {
-      background: linear-gradient(135deg, var(--gold-primary) 0%, var(--gold-dark) 100%);
-      color: #000;
-      border: none;
-      padding: 18px 40px;
-      border-radius: 16px;
-      font-size: 16px;
-      font-weight: 800;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-block;
-      box-shadow: 0 6px 20px rgba(212, 175, 55, 0.3);
-    }
-    
-    .order-info {
-      background: var(--surface);
-      border-radius: 16px;
-      padding: 24px;
-      margin-bottom: 30px;
-      border: 1px solid rgba(212, 175, 55, 0.1);
-      width: 100%;
-      max-width: 350px;
-    }
-    
-    .order-info-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 16px;
-      font-size: 15px;
-    }
-    
-    .order-info-row:last-child {
-      margin-bottom: 0;
-      padding-top: 16px;
-      border-top: 1px solid rgba(212, 175, 55, 0.1);
-    }
-    
-    .order-info-label {
-      color: var(--text-secondary);
-    }
-    
-    .order-info-value {
-      color: var(--text);
-      font-weight: 600;
-    }
-    
-    .order-info-value.price {
+    .check-btn {
+      background: transparent;
       color: var(--gold-primary);
-      font-size: 20px;
-      font-weight: 800;
+      border: 1px solid var(--gold-primary);
+      padding: 12px 24px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
     }
   </style>
 </head>
@@ -130,7 +38,7 @@
     <div class="payme-logo">P</div>
     <h1 class="success-title">To'lov muvaffaqiyatli!</h1>
     <p class="success-text">
-      Payme orqali to'lovingiz qabul qilindi. Tez orada siz bilan bog'lanamiz.
+      Buyurtmangiz qabul qilindi. Tez orada siz bilan bog'lanamiz.
     </p>
     
     <div class="order-info">
@@ -148,15 +56,61 @@
       </div>
     </div>
     
+    <div class="check-status">
+      <p>Buyurtma statusini tekshirish:</p>
+      <button class="check-btn" onclick="checkOrderStatus()">Statusni tekshirish</button>
+      <div id="statusResult" style="margin-top: 12px; font-weight: 600;"></div>
+    </div>
+    
     <a href="index.html" class="success-btn">Menyuga qaytish</a>
   </div>
 
-  <script>
+  <script type="module">
+    import { db, ref, onValue } from './firebase-config.js';
+    
     const orderId = localStorage.getItem('lastOrderId') || '-----';
     const amount = localStorage.getItem('lastOrderAmount') || '0';
     
     document.getElementById('orderId').textContent = '#' + orderId.slice(-6);
     document.getElementById('totalAmount').textContent = parseInt(amount).toLocaleString() + ' so\'m';
+    
+    // URL dan Payme parametrlarini olish
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymeOrderId = urlParams.get('order_id');
+    
+    // Agar Payme orqali qaytgan bo'lsa, status ni tekshirish
+    if (paymeOrderId) {
+      console.log('Payme order ID:', paymeOrderId);
+    }
+    
+    window.checkOrderStatus = function() {
+      const resultDiv = document.getElementById('statusResult');
+      resultDiv.textContent = 'Tekshirilmoqda...';
+      
+      // Firebase dan buyurtma statusini tekshirish
+      const ordersRef = ref(db, 'orders');
+      onValue(ordersRef, (snapshot) => {
+        const orders = snapshot.val();
+        if (orders) {
+          const order = Object.entries(orders).find(([key, val]) => 
+            val.orderId === orderId || val.order_id === paymeOrderId
+          );
+          
+          if (order) {
+            const [key, data] = order;
+            if (data.paymentStatus === 'paid' || data.status === 'accepted') {
+              resultDiv.innerHTML = '<span style="color: var(--success);">✅ To\'lov qabul qilindi!</span>';
+            } else if (data.status === 'pending') {
+              resultDiv.innerHTML = '<span style="color: var(--warning);">⏳ Kutilmoqda...</span>';
+            } else {
+              resultDiv.innerHTML = '<span style="color: var(--text-secondary);">📋 ' + (data.status || 'Noma\'lum') + '</span>';
+            }
+          } else {
+            resultDiv.textContent = 'Buyurtma topilmadi';
+          }
+        }
+      }, { onlyOnce: true });
+    };
   </script>
 </body>
 </html>

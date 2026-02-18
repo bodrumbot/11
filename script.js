@@ -24,11 +24,26 @@ let currentOrderId = null;
 let checkInterval = null;
 
 // ==========================================
-// PAYME SOZLAMALARI - CALLBACK SIZ
+// PAYME TO'LOV TIZIMI - TO'G'RI URL FORMAT
 // ==========================================
 
 const PAYME_MERCHANT_ID = '698d8268f7c89c2bb7cfc08e';
-const PAYME_BASE_URL = 'https://checkout.payme.uz';
+const PAYME_CHECKOUT_URL = 'https://checkout.payme.uz';
+
+// Base64 URL yaratish (Payme hujjatlariga mos)
+function createPaymeUrl(orderId, amountSoom) {
+  // So'mni tiyinga o'girish (1 so'm = 100 tiyin)
+  const amountTiyin = Math.round(amountSoom * 100);
+  
+  // Parametrlar formati: m=MERCHANT_ID;ac.order_id=ORDER_ID;a=AMOUNT
+  const params = `m=${PAYME_MERCHANT_ID};ac.order_id=${orderId};a=${amountTiyin}`;
+  
+  // Base64 encode (URL-safe)
+  const paramsB64 = btoa(params);
+  
+  // To'liq URL
+  return `${PAYME_CHECKOUT_URL}/${paramsB64}`;
+}
 
 // ==========================================
 // DOM ELEMENTS
@@ -340,7 +355,7 @@ function requestLocation() {
 }
 
 // ==========================================
-// PAYMENT MODAL - CALLBACK SIZ
+// PAYMENT MODAL
 // ==========================================
 
 document.getElementById('orderBtn').addEventListener('click', async () => {
@@ -386,7 +401,7 @@ document.getElementById('confirmPaymentBtn').addEventListener('click', async () 
   await processPaymePayment(phone);
 });
 
-// Payme to'lovi - CALLBACK SIZ
+// Payme to'lovi - TO'G'RI URL FORMAT
 async function processPaymePayment(phone) {
   const profile = await getProfileDB();
   const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
@@ -435,19 +450,13 @@ async function processPaymePayment(phone) {
     localStorage.setItem('lastOrderAmount', total);
     localStorage.setItem('lastOrderTime', Date.now().toString());
 
-    // CALLBACK SIZ - faqat amount va order_id
-    const amount = Math.round(total * 100);
-    const params = new URLSearchParams({
-      amount: amount.toString(),
-      'account[order_id]': currentOrderId
-    });
-    
-    const paymeCheckoutUrl = `${PAYME_BASE_URL}/${PAYME_MERCHANT_ID}?${params.toString()}`;
+    // TO'G'RI Payme URL yaratish
+    const paymeCheckoutUrl = createPaymeUrl(currentOrderId, total);
 
     console.log('========================================');
-    console.log('Payme URL (callback siz):', paymeCheckoutUrl);
-    console.log('Amount:', amount, 'tiyin (', total, 'so\'m)');
+    console.log('Payme URL:', paymeCheckoutUrl);
     console.log('Order ID:', currentOrderId);
+    console.log('Amount:', total, 'so\'m (', total * 100, 'tiyin)');
     console.log('========================================');
 
     // Payme ni ochish
